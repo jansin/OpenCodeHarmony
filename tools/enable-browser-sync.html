@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>启用 OpenCode 会话同步</title>
+  <style>
+    body { font: 14px/1.5 "Segoe UI", "PingFang SC", sans-serif; max-width: 640px; margin: 32px auto; padding: 0 16px; color: #1f2328; }
+    h1 { font-size: 20px; }
+    .box { border: 1px solid #d0d7de; border-radius: 12px; padding: 16px; background: #f6f8fa; margin: 16px 0; }
+    button, a.btn {
+      display: inline-block; border: 0; border-radius: 8px; padding: 10px 14px;
+      background: #0969da; color: #fff; text-decoration: none; font: inherit; cursor: pointer;
+    }
+    code { font-family: Consolas, monospace; font-size: 12px; word-break: break-all; }
+    ol { padding-left: 1.2em; }
+    .muted { color: #656d76; }
+  </style>
+</head>
+<body>
+  <h1>启用浏览器会话同步</h1>
+  <p class="muted">手机切换会话后，OpenCode Web 需要这段脚本才会跟随（官方 Web UI 本身不监听焦点）。</p>
+
+  <div class="box">
+    <p><b>方式 A（推荐）</b>：打开同步桥，自动弹出并跟随</p>
+    <a class="btn" href="./session-sync-companion.html">打开会话同步桥</a>
+  </div>
+
+  <div class="box">
+    <p><b>方式 B</b>：在已打开的 OpenCode 页注入（当前页需是 OpenCode）</p>
+    <ol>
+      <li>先打开 <a id="ocLink" href="http://127.0.0.1:4096" target="_blank">OpenCode Web</a> 并登录</li>
+      <li>在 OpenCode 页按 F12 → Console，粘贴下面脚本并回车</li>
+      <li>右下角出现绿色 <code>SYNC ON</code> 即成功</li>
+    </ol>
+    <p><button type="button" id="copyBtn">复制注入脚本</button> <span id="copyHint" class="muted"></span></p>
+    <pre id="scriptPreview" style="max-height:160px;overflow:auto;background:#fff;border:1px solid #d0d7de;padding:8px;border-radius:8px;"></pre>
+  </div>
+
+  <script>
+    const SCRIPT_URL = './opencode-session-sync-inject.js';
+    let scriptText = '';
+    fetch(SCRIPT_URL).then(r => r.text()).then(t => {
+      scriptText = t;
+      document.getElementById('scriptPreview').textContent = t.slice(0, 400) + '\n…';
+    }).catch(() => {
+      document.getElementById('scriptPreview').textContent = '无法加载脚本，请确认与本页同目录存在 opencode-session-sync-inject.js';
+    });
+    document.getElementById('copyBtn').onclick = async () => {
+      if (!scriptText) return;
+      await navigator.clipboard.writeText(scriptText);
+      document.getElementById('copyHint').textContent = '已复制，到 OpenCode 控制台粘贴回车';
+    };
+  </script>
+</body>
+</html>

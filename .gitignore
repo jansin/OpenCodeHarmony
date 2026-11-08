@@ -1,0 +1,33 @@
+/node_modules
+/oh_modules
+/local.properties
+/.idea
+**/build
+/.hvigor
+.cxx
+/.clangd
+/.clang-format
+/.clang-tidy
+**/.test
+/.appanalyzer
+
+# 本地密钥 / 机器相关（勿提交真实 apiKey）
+/config.local.json
+/opencode.local.json
+*.p12
+*.cer
+*.p7b
+/build-profile.local-signing.bak.json5
+
+# 服务端依赖与调试产物
+/server/node_modules
+**.hap
+**.dmp
+
+# 开发期遗留的 REST 示例骨架（未接入 OpenCode，不入库）
+/server
+
+# 调试导出的布局/快照 json（oc2.json … oc10.json）
+/oc*.json
+
+/3

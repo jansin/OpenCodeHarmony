@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "OpenCode 手机端"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "OpenCode 手机端入口"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "OpenCode"
+    }
+  ]
+}

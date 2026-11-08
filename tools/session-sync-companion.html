@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenCode 会话同步桥</title>
+  <style>
+    :root {
+      --bg: #f6f8fa;
+      --card: #fff;
+      --text: #1f2328;
+      --muted: #656d76;
+      --line: #d0d7de;
+      --accent: #0969da;
+      --ok: #1a7f37;
+      --bad: #cf222e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 14px/1.45 "Segoe UI", "PingFang SC", sans-serif;
+      color: var(--text);
+      background: linear-gradient(160deg, #eef5ff 0%, var(--bg) 45%, #f7fafc 100%);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .card {
+      max-width: 560px;
+      margin: 0 auto;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 20px 22px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+    }
+    h1 { font-size: 18px; margin: 0 0 6px; }
+    p { margin: 0 0 14px; color: var(--muted); }
+    label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+    input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font: inherit;
+    }
+    .row { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 8px 14px;
+      font: inherit;
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+    }
+    button.secondary { background: #eaeef2; color: var(--text); }
+    button:disabled { opacity: 0.5; cursor: default; }
+    .status {
+      margin-top: 16px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: #f6f8fa;
+      border: 1px solid var(--line);
+      white-space: pre-wrap;
+      word-break: break-all;
+      min-height: 72px;
+    }
+    .ok { color: var(--ok); }
+    .bad { color: var(--bad); }
+    code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>OpenCode 会话同步桥</h1>
+    <p>让浏览器 Web UI 与手机 App 跟随切换同一会话。保持本页打开，并弹出 OpenCode 窗口。</p>
+
+    <label>服务器</label>
+    <input id="baseUrl" value="http://127.0.0.1:4096" />
+    <label>用户名</label>
+    <input id="username" value="opencode" />
+    <label>密码</label>
+    <input id="password" type="password" value="opencode" />
+    <label>项目目录（x-opencode-directory）</label>
+    <input id="directory" value="D:\Huawei\OpenHarmony\work\OpenCodeHarmony" />
+
+    <div class="row">
+      <button id="btnStart">启动同步</button>
+      <button id="btnStop" class="secondary" disabled>停止</button>
+      <button id="btnOpen" class="secondary">打开 OpenCode</button>
+    </div>
+    <div class="status" id="status">未启动</div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const state = {
+      running: false,
+      timer: 0,
+      child: null,
+      appliedFocusAt: 0,
+      lastChildSid: '',
+      publishing: false
+    };
+
+    function authHeader() {
+      return 'Basic ' + btoa(unescape(encodeURIComponent($('username').value + ':' + $('password').value)));
+    }
+
+    function headers(json) {
+      const h = {
+        Authorization: authHeader(),
+        Accept: 'application/json',
+        'x-opencode-directory': $('directory').value
+      };
+      if (json) h['Content-Type'] = 'application/json';
+      return h;
+    }
+
+    function setStatus(html, cls) {
+      const el = $('status');
+      el.className = 'status' + (cls ? ' ' + cls : '');
+      el.innerHTML = html;
+    }
+
+    function serverKey() {
+      // OpenCode Web UI: /server/<btoa(origin)>/session/<id>
+      const base = $('baseUrl').value.replace(/\/$/, '');
+      return btoa(base).replace(/=+$/, '');
+    }
+
+    function sessionUrl(sid) {
+      const base = $('baseUrl').value.replace(/\/$/, '');
+      return base + '/server/' + serverKey() + '/session/' + sid;
+    }
+
+    function extractSid(href) {
+      const m = String(href || '').match(/\/session\/(ses_[A-Za-z0-9]+)/);
+      return m ? m[1] : '';
+    }
+
+    async function api(path, opts = {}) {
+      const base = $('baseUrl').value.replace(/\/$/, '');
+      const res = await fetch(base + path, {
+        method: opts.method || 'GET',
+        headers: headers(!!opts.body),
+        body: opts.body || undefined,
+        cache: 'no-store'
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error('HTTP ' + res.status + ' ' + t.slice(0, 160));
+      }
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('application/json')) return res.json();
+      return res.text();
+    }
+
+    async function publishFocus(sid, source) {
+      if (!sid || state.publishing) return;
+      state.publishing = true;
+      const at = Date.now();
+      state.appliedFocusAt = at;
+      try {
+        await api('/session/' + sid, {
+          method: 'PATCH',
+          body: JSON.stringify({ metadata: { ocFocus: at, ocFocusSource: source || 'browser' } })
+        });
+        await api('/tui/select-session', {
+          method: 'POST',
+          body: JSON.stringify({ sessionID: sid })
+        });
+      } finally {
+        state.publishing = false;
+      }
+    }
+
+    function ensureChild(sid) {
+      const url = sid ? sessionUrl(sid) : ($('baseUrl').value.replace(/\/$/, '') + '/');
+      if (!state.child || state.child.closed) {
+        state.child = window.open(url, 'opencode_sync_main');
+        return;
+      }
+      try {
+        const cur = extractSid(state.child.location.href);
+        if (sid && cur !== sid) {
+          state.child.location.href = sessionUrl(sid);
+        }
+      } catch (e) {
+        // cross-origin / not ready
+      }
+    }
+
+    async function tick() {
+      if (!state.running) return;
+      try {
+        const sessions = await api('/session?limit=40');
+        let best = null;
+        for (const s of sessions || []) {
+          const focus = s?.metadata?.ocFocus || 0;
+          if (!best || focus > (best.metadata?.ocFocus || 0)) best = s;
+        }
+        const focusAt = best?.metadata?.ocFocus || 0;
+        const focusSid = best?.id || '';
+
+        // 1) phone/other wrote newer focus -> navigate browser
+        if (focusSid && focusAt > state.appliedFocusAt) {
+          state.appliedFocusAt = focusAt;
+          ensureChild(focusSid);
+          setStatus('跟随焦点 → <code>' + focusSid + '</code>\n来源: ' +
+            (best?.metadata?.ocFocusSource || '?') + '\n' + new Date(focusAt).toLocaleTimeString(), 'ok');
+        }
+
+        // 2) user switched inside OpenCode window -> publish focus
+        if (state.child && !state.child.closed) {
+          try {
+            const childSid = extractSid(state.child.location.href);
+            if (childSid && childSid !== state.lastChildSid) {
+              state.lastChildSid = childSid;
+              await publishFocus(childSid, 'browser');
+              setStatus('浏览器切换 → 已广播 <code>' + childSid + '</code>\n' +
+                new Date().toLocaleTimeString(), 'ok');
+            }
+          } catch (e) {
+            // ignore
+          }
+        } else if (!state.child || state.child.closed) {
+          setStatus('同步中，但 OpenCode 窗口未打开。点「打开 OpenCode」。', '');
+        }
+      } catch (e) {
+        setStatus('轮询失败: ' + e.message, 'bad');
+      }
+    }
+
+    $('btnOpen').onclick = () => ensureChild(state.lastChildSid);
+    $('btnStart').onclick = async () => {
+      state.running = true;
+      $('btnStart').disabled = true;
+      $('btnStop').disabled = false;
+      ensureChild('');
+      setStatus('已启动，每 1.5s 同步一次…', 'ok');
+      await tick();
+      state.timer = setInterval(tick, 1500);
+    };
+    $('btnStop').onclick = () => {
+      state.running = false;
+      if (state.timer) clearInterval(state.timer);
+      state.timer = 0;
+      $('btnStart').disabled = false;
+      $('btnStop').disabled = true;
+      setStatus('已停止', '');
+    };
+
+    // restore last form
+    try {
+      const saved = JSON.parse(localStorage.getItem('oc.sync.companion.v1') || '{}');
+      if (saved.baseUrl) $('baseUrl').value = saved.baseUrl;
+      if (saved.username) $('username').value = saved.username;
+      if (saved.password) $('password').value = saved.password;
+      if (saved.directory) $('directory').value = saved.directory;
+    } catch {}
+    window.addEventListener('beforeunload', () => {
+      localStorage.setItem('oc.sync.companion.v1', JSON.stringify({
+        baseUrl: $('baseUrl').value,
+        username: $('username').value,
+        password: $('password').value,
+        directory: $('directory').value
+      }));
+    });
+  </script>
+</body>
+</html>
